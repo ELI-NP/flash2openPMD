@@ -1,0 +1,7 @@
+>open the terminal 
+
+>go to the location where you downloaded the scr folder(aka where this file is)
+
+>type "chmod +x f2opmd"
+
+>then run the converter by using "./f2opmd"
