@@ -110,7 +110,7 @@ class Convert(object):
 
         for i in range(0,nx-1,1):
             for j in range(0,ny-1,1):
-                density[j,i] = dens[i,j,0]
+                density[i,j] = dens[i,j,0]
 
         x = np.linspace(x_min, x_max, nx-1)
         y = np.linspace(y_min, y_max, ny-1)
