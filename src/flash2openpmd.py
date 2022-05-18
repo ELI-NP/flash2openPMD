@@ -104,8 +104,8 @@ class Convert(object):
         """
         refinex = input("Enter times how much you want to increase the X axis :\n")
         refiney = input("Enter times how much you want to increase the Y axis  :\n")
-        refinex=int(refinex)
-        refiney=int(refiney)
+        refinex = int(refinex)
+        refiney = int(refiney)
         density = np.zeros([ny-1,nx-1])
 
         for i in range(0,nx-1,1):
