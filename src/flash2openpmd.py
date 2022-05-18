@@ -160,7 +160,6 @@ class Convert(object):
 
         nume_fisier = input("Enter how you want to call the output file :\n")
         series_out = io.Series("output/%s.h5" %(nume_fisier),io.Access.create)
-        #series_out = io.Series( "./gas_0.h5",io.Access.create)
 
         k = series_out.iterations[0]
 
