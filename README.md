@@ -15,7 +15,7 @@ To begin, the following dependencies are required:
 
 -go to the location where you downloaded the scr folder(aka where this file is)
 
--type "chmod +x f2opmd"
+-type "chmod +x f2opmd.sh"
 
 -make sure the file you want to convert is in the Data folder 
 

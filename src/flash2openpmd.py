@@ -140,7 +140,7 @@ class Convert(object):
             The file that contains the data used for openpmd
 
         k :int
-           The first iteration of the system/the starting point
+            The first iteration of the system/the starting point
 
         n_e_out : array
             The output array used for openpmd that will contain the interpolated density values
@@ -159,7 +159,7 @@ class Convert(object):
         n_e_input = n_e_input.T
 
         nume_fisier = input("Enter how you want to call the output file :\n")
-        series_out = io.Series("OUTPUT\%s.h5" %(nume_fisier),io.Access.create)
+        series_out = io.Series("output/%s.h5" %(nume_fisier),io.Access.create)
         #series_out = io.Series( "./gas_0.h5",io.Access.create)
 
         k = series_out.iterations[0]
