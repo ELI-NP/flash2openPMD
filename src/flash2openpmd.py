@@ -104,8 +104,8 @@ class Convert(object):
         """
         refinex = input("Enter times how much you want to increase the X axis :\n")
         refiney = input("Enter times how much you want to increase the Y axis  :\n")
-        refinex=int(refinex)
-        refiney=int(refiney)
+        refinex = int(refinex)
+        refiney = int(refiney)
         density = np.zeros([ny-1,nx-1])
 
         for i in range(0,nx-1,1):
@@ -117,7 +117,7 @@ class Convert(object):
 
         z = density
 
-        f = interpolate.interp2d(x, y, z, kind='cubic')
+        f = interpolate.interp2d(x, y, z, kind='linear')
 
         xnew = np.linspace(x_min, x_max, (nx-1)*refinex)
         ynew = np.linspace(y_min, y_max, (ny-1)*refiney)
@@ -140,7 +140,7 @@ class Convert(object):
             The file that contains the data used for openpmd
 
         k :int
-           The first iteration of the system/the starting point
+            The first iteration of the system/the starting point
 
         n_e_out : array
             The output array used for openpmd that will contain the interpolated density values
@@ -159,8 +159,7 @@ class Convert(object):
         n_e_input = n_e_input.T
 
         nume_fisier = input("Enter how you want to call the output file :\n")
-        series_out = io.Series("OUTPUT\%s.h5" %(nume_fisier),io.Access.create)
-        #series_out = io.Series( "./gas_0.h5",io.Access.create)
+        series_out = io.Series("output/%s.h5" %(nume_fisier),io.Access.create)
 
         k = series_out.iterations[0]
 
