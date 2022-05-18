@@ -29,5 +29,4 @@ To begin, the following dependencies are required:
 
 - your converted file will be in the output folder with the extension `.h5`
 
-
-![alt text](Data/visit0001.png)
+<img src="Data/visit0001.png" alt="text" width="200"/>
