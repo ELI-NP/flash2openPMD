@@ -117,7 +117,7 @@ class Convert(object):
 
         z = density
 
-        f = interpolate.interp2d(x, y, z, kind='cubic')
+        f = interpolate.interp2d(x, y, z, kind='linear')
 
         xnew = np.linspace(x_min, x_max, (nx-1)*refinex)
         ynew = np.linspace(y_min, y_max, (ny-1)*refiney)
