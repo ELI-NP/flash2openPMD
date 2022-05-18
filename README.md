@@ -29,8 +29,14 @@ To begin, the following dependencies are required:
 
 - your converted file will be in the output folder with the extension `.h5`
 
-Simulation output from FLASH code
-<img src="Data/visit0001.png" alt="text" width="400"/>
 
-openPMD output after refinement in both X and Y direction
+
+
+<img src="Data/visit0001.png" alt="text" width="400"/>
+Simulation output from FLASH code.
+
 <img src="src/output/visit0000.png" alt="text" width="400"/>
+openPMD output after refinement in both X and Y direction.
+
+<img src="src/output/e_png_yx_0.5_001200.png" alt="text" width="400"/>
+PIConGPU simulation by using the profile converted profile from FLASH.
