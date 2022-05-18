@@ -28,3 +28,6 @@ To begin, the following dependencies are required:
 - enter the output filename, e.g. `gas_0`
 
 - your converted file will be in the output folder with the extension `.h5`
+
+
+![alt text](Data/visit0001.png)
