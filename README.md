@@ -11,14 +11,18 @@ To begin, the following dependencies are required:
 
 #### Running the conversion:
 
--open the terminal 
+- open terminal and go to `/scr`
 
--go to the location where you downloaded the scr folder(aka where this file is)
+- type `chmod +x f2opmd.sh`
 
--type "chmod +x f2opmd.sh"
+- make sure the data file you want to convert is in the Data folder 
 
--make sure the file you want to convert is in the Data folder 
+- then run the converter with "./f2opmd"
 
--then run the converter by using "./f2opmd"
+- enter the file name, e.g. lassab_hdf5_plt_cnt_0100
 
--your converted file will  be in the Output folder
+- enter the refinement level for each axis
+
+- enter the output filename, e.g. gas_0
+
+- your converted file will be in the output folder with the extension .h5
