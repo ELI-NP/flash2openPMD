@@ -29,4 +29,8 @@ To begin, the following dependencies are required:
 
 - your converted file will be in the output folder with the extension `.h5`
 
-<img src="Data/visit0001.png" alt="text" width="200"/>
+Simulation output from FLASH code
+<img src="Data/visit0001.png" alt="text" width="400"/>
+
+openPMD output after refinement in both X and Y direction
+<img src="src/output/visit0000.png" alt="text" width="400"/>
