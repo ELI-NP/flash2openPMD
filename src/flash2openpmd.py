@@ -73,14 +73,14 @@ class Convert(object):
         if level==0:
             scale = 1
         else:
-            scale = np.array([level**2,level**2,1])
+            scale = np.array([2**level,2**level,1])
 
         ds.force_periodicity()
         all_data = ds.covering_grid(level=level,
                                     left_edge=[x_min, y_min, z_min],
                                     dims=ds.domain_dimensions * scale)
 
-        density = all_data["gas", "density"]
+        density = all_data["gas", "density"] * all_data["ye"] * 6.022E23 * 1e6 # density in [1/m3]
 
         x_max, y_max, z_max = ds.domain_right_edge
 
@@ -174,6 +174,8 @@ class Convert(object):
 
         """
         n_e_input = n_e_input.T
+        
+        n_e_input = n_e_input/np.max(n_e_input) # Normalized to 1
 
         nume_fisier = input("Enter how you want to call the output file :\n")
         series_out = io.Series("output/%s.h5" %(nume_fisier),io.Access.create)
