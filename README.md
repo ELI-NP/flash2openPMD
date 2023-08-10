@@ -13,29 +13,27 @@ To begin, the following dependencies are required:
 
 #### Running the conversion:
 
-- open terminal and go to `/scr`
+- In the terminal, change directory to `/src`
 
-- type `chmod +x f2opmd.sh`
+- Type `chmod +x f2opmd.sh` to add the permission for execution
 
-- make sure the data file you want to convert is in the Data folder 
+- Run the conversion with `./f2opmd.sh`
+  
+- Enter the simulation directory which contains your output file with the name `**_hdf5_plt_cnt_**`
 
-- then run the converter with `./f2opmd`
+- Enter the file iteration, e.g. `100`
 
-- enter the file name, e.g. `lassab_hdf5_plt_cnt_0100`
+- Enter the refinement level for each axis
 
-- enter the refinement level for each axis
+- Enter the output filename, e.g. `gas_0`
 
-- enter the output filename, e.g. `gas_0`
-
-- your converted file will be in the output folder with the extension `.h5`
-
-
+- The converted file will be located in the output folder with the extension `.h5`
 
 
-<img src="Data/visit0001.png" alt="text" width="400"/>
+<img src="Data/Figure1.png" alt="text" width="400"/>
 Simulation output from FLASH code.
 
-<img src="src/output/visit0000.png" alt="text" width="400"/>
+<img src="src/output/visit0001.png" alt="text" width="400"/>
 openPMD output after refinement in both X and Y direction.
 
 <img src="src/output/e_png_yx_0.5_001200.png" alt="text" width="400"/>
