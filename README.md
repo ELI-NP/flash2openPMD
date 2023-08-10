@@ -38,4 +38,4 @@ The openPMD output after 6 times refinement in both X and Y directions.
 
 
 PIConGPU simulation by using the profile converted profile from FLASH.
-<img src="src/output/e_png_yx_0.5_001200.png" alt="text" width="400"/>
+<img src="src/output/dens_e_1018.png" alt="text" width="400"/> <img src="src/output/Ex_1018.png" alt="text" width="400"/>
