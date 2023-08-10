@@ -30,7 +30,7 @@ To begin, the following dependencies are required:
 - The converted file will be located in the output folder with the extension `.h5`
 
 Simulation output from FLASH code.
-<img src="Data/Figure1.png" alt="text" width="400"/>
+<img src="Data/Figure1.png" alt="text" width="800"/>
 
 
 The openPMD output after 6 times refinement in both X and Y directions.
