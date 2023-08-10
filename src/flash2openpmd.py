@@ -43,22 +43,12 @@ class Convert(object):
 
         self.path_to_sim = os.path.join(run_directory,filename)
 
-    def read4Flash(self,x_min,y_min,z_min=0,level=4):
+    def read4Flash(self,level=4):
         """
         Read the FLASH output
 
         Parameters
         ----------
-        x_min : float
-            The minimum boundary in x direction in the unit of centimeter (unit of FLASH code)
-
-        y_min : float
-            The minimum boundary in y direction in the unit of centimeter (unit of FLASH code)
-
-        z_min : float
-            The minimum boundary in y direction in the unit of centimeter (unit of FLASH code)
-            z_min=0 for 2D simulation
-
         level : int
             The level of refinement using yt-project. Currently fixed to level=4
 
@@ -77,20 +67,21 @@ class Convert(object):
 
         ds.force_periodicity()
         all_data = ds.covering_grid(level=level,
-                                    left_edge=[x_min, y_min, z_min],
+                                    left_edge=ds.domain_left_edge,
                                     dims=ds.domain_dimensions * scale)
 
         density = all_data["gas", "density"] * all_data["ye"] * 6.022E23 * 1e6 # density in [1/m3]
 
+        x_min, y_min, z_min = ds.domain_left_edge
         x_max, y_max, z_max = ds.domain_right_edge
 
         nx, ny, nz = density.shape
 
-        return density, nx, ny, nz, x_max.v, y_max.v, z_max.v
+        return density, nx, ny, nz, x_max.v, y_max.v, z_max.v, x_min.v, y_min.v, z_min.v
 
-    def get_data(self,x_min,y_min):
+    def get_data(self):
 
-        dens, nx, ny, nz, x_max, y_max, z_max = self.read4Flash(x_min,y_min)
+        dens, nx, ny, nz, x_max, y_max, z_max, x_min, y_min, zmin = self.read4Flash()
 
         """
         Selecting the data that will be wrote to be used in openopmd
@@ -119,15 +110,15 @@ class Convert(object):
         A 2d array containing the required density after the interpolation
 
         """
-        refinex = input("Enter times how much you want to increase the X axis :\n")
-        refiney = input("Enter times how much you want to increase the Y axis  :\n")
+        refinex = input("Level of x-axis refinement (int):\n")
+        refiney = input("level of y-axis refinement (int):\n")
         refinex = int(refinex)
         refiney = int(refiney)
         density = np.zeros([ny-1,nx-1])
 
         for i in range(0,nx-1,1):
             for j in range(0,ny-1,1):
-                density[i,j] = dens[i,j,0]
+                density[j,i] = dens[i,j,0]
 
         x = np.linspace(x_min, x_max, nx-1)
         y = np.linspace(y_min, y_max, ny-1)
@@ -177,7 +168,7 @@ class Convert(object):
         
         n_e_input = n_e_input/np.max(n_e_input) # Normalized to 1
 
-        nume_fisier = input("Enter how you want to call the output file :\n")
+        nume_fisier = input("Output file name :\n")
         series_out = io.Series("output/%s.h5" %(nume_fisier),io.Access.create)
 
         k = series_out.iterations[0]
