@@ -37,5 +37,5 @@ The openPMD output after 6 times refinement in both X and Y directions.
 <img src="src/output/visit0001.png" alt="text" width="400"/>
 
 
-PIConGPU simulation by using the profile converted profile from FLASH.
+PIConGPU simulation by using the profile converted from FLASH. The figure shows the electron density profile duing the interaction with the rising edge of the laser main pulse.
 <img src="src/output/dens_e_1018.png" alt="text" width="400"/> <img src="src/output/Ex_1018.png" alt="text" width="400"/>
