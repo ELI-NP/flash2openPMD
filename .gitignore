@@ -1,2 +1,3 @@
 *_hdf5_plt_cnt_*
 __pycache__
+*.h5
