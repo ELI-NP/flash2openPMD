@@ -70,7 +70,7 @@ class Convert(object):
                                     left_edge=ds.domain_left_edge,
                                     dims=ds.domain_dimensions * scale)
 
-        density = all_data["gas", "density"] * all_data["ye"] * 6.022E23 * 1e6 # density in [1/m3]
+        density = all_data["gas", "density"] # density in [g/cm3]
 
         x_min, y_min, z_min = ds.domain_left_edge
         x_max, y_max, z_max = ds.domain_right_edge
