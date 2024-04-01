@@ -24,7 +24,7 @@ import sys
 from scipy import constants as sc
 import openpmd_api  as io
 import glob
-from scipy import interpolate
+from scipy.interpolate import RegularGridInterpolator
 
 class Convert(object):
     def __init__(self,run_directory,filename):
@@ -63,7 +63,7 @@ class Convert(object):
         if level==0:
             scale = 1
         else:
-            scale = np.array([2**level,2**level,1])
+            scale = np.array([2**level,2**level,2**level])
 
         ds.force_periodicity()
         all_data = ds.covering_grid(level=level,
@@ -81,7 +81,7 @@ class Convert(object):
 
     def get_data(self):
 
-        dens, nx, ny, nz, x_max, y_max, z_max, x_min, y_min, zmin = self.read4Flash()
+        dens, nx, ny, nz, x_max, y_max, z_max, x_min, y_min, z_min = self.read4Flash()
 
         """
         Selecting the data that will be wrote to be used in openopmd
@@ -89,10 +89,10 @@ class Convert(object):
         Parameters
         ----------
         density : array 
-            Includes the values of density in different coordinates in the XoY plane as a 2D array
+            The mass density
             
         nx, ny, nz : int
-            The length of the x,y 1D arrays and the numbers of lines and columns of the density matrix/z array
+            The length of the x,y,z 1D arrays and the numbers of lines and columns of the density matrix/z array
             
         
         x_max, y_max, z_max :float
@@ -107,32 +107,45 @@ class Convert(object):
             
         Returns
         -------
-        A 2d array containing the required density after the interpolation
+        An array containing the required density after the interpolation
 
         """
+        print("nx, ny, nz", nx, ny, nz)
+        
         refinex = input("Level of x-axis refinement (int):\n")
         refiney = input("level of y-axis refinement (int):\n")
+        
         refinex = int(refinex)
         refiney = int(refiney)
-        density = np.zeros([ny-1,nx-1])
+        
+        if z_max==1:
+            x = np.linspace(x_min, x_max, nx)
+            y = np.linspace(y_min, y_max, ny)
 
-        for i in range(0,nx-1,1):
-            for j in range(0,ny-1,1):
-                density[j,i] = dens[i,j,0]
+            interp = RegularGridInterpolator((x, y), dens[:,:,0])
+            
+            xnew = np.linspace(x_min, x_max, nx*refinex)
+            ynew = np.linspace(y_min, y_max, ny*refiney)
+            X, Y = np.meshgrid(xnew, ynew, indexing='ij')
+            
+            data = interp((X, Y))
+        else:
+            x = np.linspace(x_min, x_max, nx)
+            y = np.linspace(y_min, y_max, ny)
+            z = np.linspace(z_min, z_max, nz)
 
-        x = np.linspace(x_min, x_max, nx-1)
-        y = np.linspace(y_min, y_max, ny-1)
+            interp = RegularGridInterpolator((x, y, z), dens)
+            
+            refinez = input("level of z-axis refinement (int):\n")
+            refinez = int(refinez)
+            
+            xnew = np.linspace(x_min, x_max, nx*refinex)
+            ynew = np.linspace(y_min, y_max, ny*refiney)
+            znew = np.linspace(z_min, z_max, nz*refinez)
+            X, Y, Z = np.meshgrid(xnew, ynew, znew, indexing='ij')
+            data = interp((X, Y, Z ))
 
-        z = density
-
-        f = interpolate.interp2d(x, y, z, kind='linear')
-
-        xnew = np.linspace(x_min, x_max, (nx-1)*refinex)
-        ynew = np.linspace(y_min, y_max, (ny-1)*refiney)
-
-        znew = f(xnew, ynew)
-
-        return np.array(znew, dtype='float32')
+        return np.array(data.T, dtype='float32')
 
     def write2openpmd(self,n_e_input):
 
