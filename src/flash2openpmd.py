@@ -25,9 +25,10 @@ from scipy import constants as sc
 import openpmd_api  as io
 import glob
 from scipy.interpolate import RegularGridInterpolator
+from scipy import interpolate
 
 class Convert(object):
-    def __init__(self,run_directory,filename):
+    def __init__(self,run_directory,filename,left_edge=None,right_edge=None):
         """
         Parameters
         ----------
@@ -42,6 +43,8 @@ class Convert(object):
             raise ValueError('The run_directory parameter can not be None!')
 
         self.path_to_sim = os.path.join(run_directory,filename)
+        self.left_edge = left_edge
+        self.right_edge = right_edge
 
     def read4Flash(self,level=4):
         """
@@ -59,29 +62,32 @@ class Convert(object):
         """
 
         ds = yt.load(self.path_to_sim)
+        
+        ds.print_stats()
 
-        if level==0:
-            scale = 1
-        else:
-            scale = np.array([2**level,2**level,2**level])
+        # ds.force_periodicity()
+        
+        if self.left_edge is None:
+            self.left_edge = ds.domain_left_edge
+            
+        if self.right_edge is None:
+            self.right_edge = ds.domain_right_edge
 
-        ds.force_periodicity()
         all_data = ds.covering_grid(level=level,
                                     left_edge=ds.domain_left_edge,
-                                    dims=ds.domain_dimensions * scale)
+                                    dims=ds.domain_dimensions * ds.refine_by**level,
+                                    )
+        
+        density = all_data[("gas", "density")] # density in [g/cm3]
 
-        density = all_data["gas", "density"] # density in [g/cm3]
+        x_min, y_min, z_min = self.left_edge
+        x_max, y_max, z_max = self.right_edge
 
-        x_min, y_min, z_min = ds.domain_left_edge
-        x_max, y_max, z_max = ds.domain_right_edge
+        return density, x_max, y_max, z_max, x_min, y_min, z_min
 
-        nx, ny, nz = density.shape
+    def get_data(self,refinex,refiney):
 
-        return density, nx, ny, nz, x_max.v, y_max.v, z_max.v, x_min.v, y_min.v, z_min.v
-
-    def get_data(self):
-
-        dens, nx, ny, nz, x_max, y_max, z_max, x_min, y_min, z_min = self.read4Flash()
+        dens, x_max, y_max, z_max, x_min, y_min, z_min = self.read4Flash()
 
         """
         Selecting the data that will be wrote to be used in openopmd
@@ -90,62 +96,47 @@ class Convert(object):
         ----------
         density : array 
             The mass density
-            
-        nx, ny, nz : int
-            The length of the x,y,z 1D arrays and the numbers of lines and columns of the density matrix/z array
-            
         
         x_max, y_max, z_max :float
             The maximum boundary in x, y, and z directions in the unit of centimeter (unit of FLASH code)
             
-        refinex, refiney : int
+        refinex, refiney, refiney : int
             The level of refinement we use for the interpolation in order to obtain a more clear simulation
             (How many times more points we will have in the final figure on the x and y axis)
-            
-        xnew, ynew, znew :array
-            The new coordonates on the x and y axis and the znew value at each intersecton of x column and y line after interpolation
             
         Returns
         -------
         An array containing the required density after the interpolation
 
         """
-        print("nx, ny, nz", nx, ny, nz)
+        nx, ny, nz = dens.shape
         
-        refinex = input("Level of x-axis refinement (int):\n")
-        refiney = input("level of y-axis refinement (int):\n")
+        density = np.zeros([ny-1,nx-1])
+
+        for i in range(0,nx-1,1):
+            for j in range(0,ny-1,1):
+                density[j,i] = dens[i,j,0]
+
+        x = np.linspace(x_min, x_max, nx-1)
+        y = np.linspace(y_min, y_max, ny-1)
         
-        refinex = int(refinex)
-        refiney = int(refiney)
+        print("    ")
+        print("nx = {:}, ny = {:}".format(nx,ny))
+        print("    ")
+        z = density
+
+        f = interpolate.interp2d(x, y, z, kind='linear')
+
+        xnew = np.linspace(x_min, x_max, (nx-1)*refinex)
+        ynew = np.linspace(y_min, y_max, (ny-1)*refiney)
         
-        if z_max==1:
-            x = np.linspace(x_min, x_max, nx)
-            y = np.linspace(y_min, y_max, ny)
+        print("    ")
+        print("n_xnew = {:}, n_ynew = {:}".format((nx-1)*refinex,(ny-1)*refiney))
+        print("    ")
 
-            interp = RegularGridInterpolator((x, y), dens[:,:,0])
-            
-            xnew = np.linspace(x_min, x_max, nx*refinex)
-            ynew = np.linspace(y_min, y_max, ny*refiney)
-            X, Y = np.meshgrid(xnew, ynew, indexing='ij')
-            
-            data = interp((X, Y))
-        else:
-            x = np.linspace(x_min, x_max, nx)
-            y = np.linspace(y_min, y_max, ny)
-            z = np.linspace(z_min, z_max, nz)
+        znew = f(xnew, ynew)
 
-            interp = RegularGridInterpolator((x, y, z), dens)
-            
-            refinez = input("level of z-axis refinement (int):\n")
-            refinez = int(refinez)
-            
-            xnew = np.linspace(x_min, x_max, nx*refinex)
-            ynew = np.linspace(y_min, y_max, ny*refiney)
-            znew = np.linspace(z_min, z_max, nz*refinez)
-            X, Y, Z = np.meshgrid(xnew, ynew, znew, indexing='ij')
-            data = interp((X, Y, Z ))
-
-        return np.array(data.T, dtype='float32')
+        return np.array(znew, dtype='float32')
 
     def write2openpmd(self,n_e_input):
 
@@ -181,14 +172,14 @@ class Convert(object):
         
         n_e_input = n_e_input/np.max(n_e_input) # Normalized to 1
 
-        nume_fisier = input("Output file name :\n")
+        nume_fisier = "density"
         series_out = io.Series("output/%s.h5" %(nume_fisier),io.Access.create)
 
         k = series_out.iterations[0]
 
         series_out.author = "Your Name <Your@email>"
         # record - again,important to specify as scalar
-        n_e_out = k.meshes["e_density"]
+        n_e_out = k.meshes["density"]
         n_e_mrc = n_e_out[io.Mesh_Record_Component.SCALAR]
 
         dataset = io.Dataset(
