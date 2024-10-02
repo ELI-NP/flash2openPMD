@@ -15,13 +15,13 @@ To begin, the following dependencies are required:
 
 See `Convert.ipynb` for the flow of conversion
 
-The converted file will be located in the output folder with the extension `.h5`
+The converted file has the extension `.h5`
 
 Simulation output from FLASH code.
 <img src="Data/Figure1.png" alt="text" width="800"/>
 
 
-The openPMD output after 6 times refinement in both X and Y directions.
+The openPMD output after 6 level refinement in both X and Y directions.
 <img src="src/output/visit0001.png" alt="text" width="400"/>
 
 
