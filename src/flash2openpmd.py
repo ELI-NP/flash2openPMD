@@ -24,16 +24,15 @@ import sys
 from scipy import constants as sc
 import openpmd_api  as io
 import glob
-from scipy.interpolate import RegularGridInterpolator
 from scipy import interpolate
 
 class Convert(object):
-    def __init__(self,run_directory,filename,left_edge=None,right_edge=None):
+    def __init__(self,run_directory,filename):
         """
         Parameters
         ----------
-        run_directory : string
-            The path to the directory where the output of FLASH are.
+        run_directory : string 
+            The path to the directory where the output of FLASH are. 
 
         filename : string
             The output filename of FLASH. (e.g. lasslab_hdf5_plt_cnt_0043)
@@ -42,19 +41,27 @@ class Convert(object):
         if run_directory is None:
             raise ValueError('The run_directory parameter can not be None!')
 
-        self.path_to_sim = os.path.join(run_directory,filename)
-        self.left_edge = left_edge
-        self.right_edge = right_edge
+        self.path_to_sim = os.path.join(run_directory,filename)       
 
-    def read4Flash(self,level=4):
+    def read4Flash(self,x_min,y_min,z_min,level):
         """
         Read the FLASH output
 
         Parameters
         ----------
+        x_min : float
+            The minimum boundary in x direction in the unit of centimeter (unit of FLASH code)
+        
+        y_min : float
+            The minimum boundary in y direction in the unit of centimeter (unit of FLASH code)
+
+        z_min : float
+            The minimum boundary in y direction in the unit of centimeter (unit of FLASH code)
+            z_min=0 for 2D simulation
+        
         level : int
             The level of refinement using yt-project. Currently fixed to level=4
-
+        
         Returns
         -------
         A 2d array containing the required density, shape and maximum boundary in each direction.
@@ -62,124 +69,46 @@ class Convert(object):
         """
 
         ds = yt.load(self.path_to_sim)
-        
-        ds.print_stats()
 
-        # ds.force_periodicity()
-        
-        if self.left_edge is None:
-            self.left_edge = ds.domain_left_edge
-            
-        if self.right_edge is None:
-            self.right_edge = ds.domain_right_edge
+        if level==0:
+            scale = 1
+        else:
+            scale = np.array([2**level,2**level,1])
 
-        all_data = ds.covering_grid(level=level,
-                                    left_edge=ds.domain_left_edge,
-                                    dims=ds.domain_dimensions * ds.refine_by**level,
-                                    )
-        
-        density = all_data[("gas", "density")] # density in [g/cm3]
+        ds.force_periodicity()
+        all_data = ds.covering_grid(level=level, 
+                                    left_edge=[x_min, y_min, z_min], 
+                                    dims=ds.domain_dimensions * scale)
 
-        x_min, y_min, z_min = self.left_edge
-        x_max, y_max, z_max = self.right_edge
+        density = all_data["gas", "El_number_density"]
 
-        return density, x_max, y_max, z_max, x_min, y_min, z_min
+        x_max, y_max, z_max = ds.domain_right_edge
 
-    def get_data(self,refinex,refiney):
+        nx, ny, nz = density.shape
 
-        dens, x_max, y_max, z_max, x_min, y_min, z_min = self.read4Flash()
+        return density, nx, ny, nz, x_max.v, y_max.v, z_max.v
 
-        """
-        Selecting the data that will be wrote to be used in openopmd
+    def get_data(self,x_min,y_min,z_min,level):
 
-        Parameters
-        ----------
-        density : array 
-            The mass density
-        
-        x_max, y_max, z_max :float
-            The maximum boundary in x, y, and z directions in the unit of centimeter (unit of FLASH code)
-            
-        refinex, refiney, refiney : int
-            The level of refinement we use for the interpolation in order to obtain a more clear simulation
-            (How many times more points we will have in the final figure on the x and y axis)
-            
-        Returns
-        -------
-        An array containing the required density after the interpolation
+        dens, nx, ny, nz, x_max, y_max, z_max = self.read4Flash(x_min,y_min,z_min,level)
 
-        """
-        nx, ny, nz = dens.shape
-        
-        density = np.zeros([ny-1,nx-1])
+        density = dens[:,:,0]
 
-        for i in range(0,nx-1,1):
-            for j in range(0,ny-1,1):
-                density[j,i] = dens[i,j,0]
-
-        x = np.linspace(x_min, x_max, nx-1)
-        y = np.linspace(y_min, y_max, ny-1)
-        
-        print("    ")
-        print("nx = {:}, ny = {:}".format(nx,ny))
-        print("    ")
         z = density
-
-        f = interpolate.interp2d(x, y, z, kind='linear')
-
-        xnew = np.linspace(x_min, x_max, (nx-1)*refinex)
-        ynew = np.linspace(y_min, y_max, (ny-1)*refiney)
         
-        print("    ")
-        print("n_xnew = {:}, n_ynew = {:}".format((nx-1)*refinex,(ny-1)*refiney))
-        print("    ")
+        return np.array(z, dtype='float32')
 
-        znew = f(xnew, ynew)
+    def write2openpmd(self,n_e_input,output_name):
 
-        return np.array(znew, dtype='float32')
-
-    def write2openpmd(self,n_e_input):
-
-        """
-        Writing the data to be rady to use in openopmd
-
-        Parameters
-        ----------
-        n_e_input : array
-            The input data we want to write for openpmd(in our case density)
-
-        series_out :record
-            The file that contains the data used for openpmd
-
-        k :int
-            The first iteration of the system/the starting point
-
-        n_e_out : array
-            The output array used for openpmd that will contain the interpolated density values
-
-        n_e_mrc :array
-            The array used to record the data in the output array
-
-        dataset :array
-            An array with the same dimensions and values a as n_e_input
-
-        Returns
-        -------
-        Creates an hdf5 file that contains the input needed for openpmd
-
-        """
-        n_e_input = n_e_input.T
-        
-        n_e_input = n_e_input/np.max(n_e_input) # Normalized to 1
-
-        nume_fisier = "density"
-        series_out = io.Series("output/%s.h5" %(nume_fisier),io.Access.create)
+        series_out = io.Series(
+        f"./{output_name}_0.h5",
+        io.Access.create)
 
         k = series_out.iterations[0]
 
         series_out.author = "Your Name <Your@email>"
         # record - again,important to specify as scalar
-        n_e_out = k.meshes["density"]
+        n_e_out = k.meshes["e_density"]
         n_e_mrc = n_e_out[io.Mesh_Record_Component.SCALAR]
 
         dataset = io.Dataset(
