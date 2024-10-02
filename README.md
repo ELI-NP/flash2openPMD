@@ -15,7 +15,7 @@ To begin, the following dependencies are required:
 
 See `Convert.ipynb` for the flow of conversion
 
-The converted file has the extension `.h5`
+The converted file has the extension `.h5` with custom name
 
 Simulation output from FLASH code.
 <img src="Data/Figure1.png" alt="text" width="800"/>
