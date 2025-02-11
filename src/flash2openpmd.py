@@ -73,7 +73,10 @@ class Convert(object):
         if level==0:
             scale = 1
         else:
-            scale = np.array([2**level,2**level,2**level])
+            if z_min == 0:
+                scale = np.array([2**level,2**level,1])
+            else:
+                scale = np.array([2**level,2**level,2**level])
 
         ds.force_periodicity()
         all_data = ds.covering_grid(level=level, 
@@ -92,7 +95,10 @@ class Convert(object):
 
         dens, nx, ny, nz, x_max, y_max, z_max = self.read4Flash(x_min,y_min,z_min,level)
 
-        density = dens[:,:,0]
+        if z_min == 0.0:
+            density = dens[:,:,0]
+        else:
+            density = dens[:,:,:]
 
         z = density
         
