@@ -73,7 +73,7 @@ class Convert(object):
         if level==0:
             scale = 1
         else:
-            scale = np.array([2**level,2**level,1])
+            scale = np.array([2**level,2**level,2**level])
 
         ds.force_periodicity()
         all_data = ds.covering_grid(level=level, 
