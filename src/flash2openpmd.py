@@ -43,7 +43,7 @@ class Convert(object):
 
         self.path_to_sim = os.path.join(run_directory,filename)       
 
-    def read4Flash(self,x_min,y_min,z_min,level):
+    def read4Flash(self,x_min,y_min,z_min,fields,level):
         """
         Read the FLASH output
 
@@ -58,6 +58,9 @@ class Convert(object):
         z_min : float
             The minimum boundary in y direction in the unit of centimeter (unit of FLASH code)
             z_min=0 for 2D simulation
+        
+        field : string
+        	The field data (unit of FLASH code), i.e. fields="El_number_density"
         
         level : int
             The level of refinement using yt-project. Currently fixed to level=4
@@ -83,7 +86,7 @@ class Convert(object):
                                     left_edge=[x_min, y_min, z_min], 
                                     dims=ds.domain_dimensions * scale)
 
-        density = all_data["gas", "El_number_density"]
+        density = all_data[('gas',f"{fields}")]
 
         x_max, y_max, z_max = ds.domain_right_edge
 
@@ -91,40 +94,38 @@ class Convert(object):
 
         return density, nx, ny, nz, x_max.v, y_max.v, z_max.v
 
-    def get_data(self,x_min,y_min,z_min,level):
+    def get_data(self,x_min,y_min,z_min,fields,level):
 
-        dens, nx, ny, nz, x_max, y_max, z_max = self.read4Flash(x_min,y_min,z_min,level)
+        dens, nx, ny, nz, x_max, y_max, z_max = self.read4Flash(x_min,y_min,z_min,fields,level)
 
         if z_min == 0.0:
             density = dens[:,:,0]
         else:
             density = dens[:,:,:]
+		
+        return np.array(density.T, order='C', dtype='float32')
 
-        z = density
-        
-        return np.array(z, dtype='float32')
-
-    def write2openpmd(self,n_e_input,output_name):
+    def write2openpmd(self,density_input,species,output_name):
 
         series_out = io.Series(
-        f"./{output_name}_0.h5",
+        f"./{species}_{output_name}_0.h5",
         io.Access.create)
 
         k = series_out.iterations[0]
 
         series_out.author = "Your Name <Your@email>"
         # record - again,important to specify as scalar
-        n_e_out = k.meshes["e_density"]
+        n_e_out = k.meshes[f"{species}_density"]
         n_e_mrc = n_e_out[io.Mesh_Record_Component.SCALAR]
 
         dataset = io.Dataset(
-            n_e_input.dtype,
-            n_e_input.shape)
+            density_input.dtype,
+            density_input.shape)
         n_e_mrc.reset_dataset(dataset)
 
         n_e_out.set_attribute('dataOrder','C')
         n_e_out.set_attribute('axisLabels',['z','y','x'])
-        n_e_mrc.store_chunk(n_e_input)
+        n_e_mrc.store_chunk(density_input)
         # After registering a data chunk such as x_data and y_data,
         # it MUST NOT be modified or deleted until the flush() step is performed!
         series_out.flush()
