@@ -40,7 +40,8 @@ class Convert(object):
 
         if run_directory is None:
             raise ValueError('The run_directory parameter can not be None!')
-
+            
+        self.run_directory = run_directory
         self.path_to_sim = os.path.join(run_directory,filename)       
 
     def read4Flash(self,x_min,y_min,z_min,fields,level):
@@ -108,7 +109,7 @@ class Convert(object):
     def write2openpmd(self,density_input,species,output_name):
 
         series_out = io.Series(
-        f"./{species}_{output_name}_0.h5",
+        self.run_directory + f"{species}_{output_name}_0.h5",
         io.Access.create)
 
         k = series_out.iterations[0]
