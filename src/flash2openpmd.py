@@ -100,11 +100,11 @@ class Convert(object):
         dens, nx, ny, nz, x_max, y_max, z_max = self.read4Flash(x_min,y_min,z_min,fields,level)
 
         if z_min == 0.0:
-            density = dens[:,:,0]
+            density = np.array(dens[:,:,0], order='C', dtype='float32')
         else:
-            density = dens[:,:,:]
+            density = np.array(dens.T, order='C', dtype='float32')
 		
-        return np.array(density.T, order='C', dtype='float32')
+        return density
 
     def write2openpmd(self,density_input,species,output_name):
 
