@@ -83,7 +83,7 @@ class Convert(object):
                 scale = np.array([2**level,2**level,2**level])
 
         ds.force_periodicity()
-        all_data = ds.covering_grid(level=level, 
+        all_data = ds.smoothed_covering_grid(level=level, 
                                     left_edge=[x_min, y_min, z_min], 
                                     dims=ds.domain_dimensions * scale)
 
