@@ -42,7 +42,7 @@ class Convert(object):
             raise ValueError('The run_directory parameter can not be None!')
             
         self.run_directory = run_directory
-        self.path_to_sim = os.path.join(run_directory,filename)       
+        self.path_to_sim = os.path.join(run_directory,filename)
 
     def read4Flash(self,x_min,y_min,z_min,fields,level):
         """
@@ -95,14 +95,14 @@ class Convert(object):
 
         return density, nx, ny, nz, x_max.v, y_max.v, z_max.v
 
-    def get_data(self,x_min,y_min,z_min,fields,level):
+    def get_data(self,x_min,y_min,z_min,fields,level,dtype=None):
 
         dens, nx, ny, nz, x_max, y_max, z_max = self.read4Flash(x_min,y_min,z_min,fields,level)
 
         if z_min == 0.0:
-            density = np.array(dens[:,:,0], order='C', dtype='float32')
+            density = np.array(dens[:,:,0], order='C', dtype=dtype)
         else:
-            density = np.array(dens.T, order='C', dtype='float32')
+            density = np.array(dens.T, order='C', dtype=dtype)
 		
         return density
 
