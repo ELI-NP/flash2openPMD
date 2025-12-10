@@ -44,7 +44,7 @@ class Convert(object):
         self.run_directory = run_directory
         self.path_to_sim = os.path.join(run_directory,filename)
 
-    def read4Flash(self,x_min,y_min,z_min,fields,level):
+    def read4Flash(self,fields,level):
         """
         Read the FLASH output
 
@@ -74,34 +74,81 @@ class Convert(object):
 
         ds = yt.load(self.path_to_sim)
 
-        if level==0:
-            scale = 1
-        else:
-            if z_min == 0:
-                scale = np.array([2**level,2**level,1])
-            else:
-                scale = np.array([2**level,2**level,2**level])
+        ND = ds.dimensionality
+
+        print(f"Data geometry: {ds.geometry}")
+        print(f"Data dimensionality: {ND}D")
+
+        if ND == 2:
+            scale = np.array([2**level,2**level,1])
+        elif ND == 3:
+            scale = np.array([2**level,2**level,2**level])
 
         ds.force_periodicity()
         all_data = ds.smoothed_covering_grid(level=level, 
-                                    left_edge=[x_min, y_min, z_min], 
-                                    dims=ds.domain_dimensions * scale)
+                                    left_edge=ds.domain_left_edge, 
+                                    dims=ds.domain_dimensions * scale,
+                                    )
 
-        density = all_data[('gas',f"{fields}")]
+        density = self.cylindricalRotateAxial(all_data,fields=f"{fields}")
 
-        x_max, y_max, z_max = ds.domain_right_edge
+        return density, ND, ds.geometry
+    
+    def cylindricalRotateAxial(self,array,fields):
+        """
+        Rotate the 2D cylindrical data to 3D Cartesian data
 
-        nx, ny, nz = density.shape
+        Parameters
+        ----------
+        array : 2D array
+            The 2D cylindrical data
 
-        return density, nx, ny, nz, x_max.v, y_max.v, z_max.v
+        Returns
+        -------
+        A 3D array containing the rotated Cartesian data.
 
-    def get_data(self,x_min,y_min,z_min,fields,level,dtype=None):
+        """
 
-        dens, nx, ny, nz, x_max, y_max, z_max = self.read4Flash(x_min,y_min,z_min,fields,level)
+        rho = array[(f'{fields}')]
+        r = array[("index","r")].v[:,0].reshape(-1)
+        z = array[("index","z")].v[0,:].reshape(-1)
+        R, Z = np.meshgrid(r, z)
 
-        if z_min == 0.0:
-            density = np.array(dens[:,:,0], order='C', dtype=dtype)
-        else:
+        Nx = len(2*r)
+        Ny = len(2*r)
+        X = np.linspace(-r.max(), r.max(), Nx)
+        Y = np.linspace(-r.max(), r.max(), Ny)
+        Z_out = z.copy()
+
+        xx, yy = np.meshgrid(X, Y, indexing='xy')   # shape (Ny, Nx)
+        r_grid_xy = np.sqrt(xx**2 + yy**2)          # radial distance at each (x,y)
+
+        Nz = len(Z_out)
+        vol = np.zeros((Nz, Ny, Nx), dtype=rho.dtype)  # (z, y, x)
+
+        if not np.all(np.diff(r) > 0):
+            raise ValueError("r must be strictly increasing")
+        
+        print("Converting cylindrical to 3D Cartesian coordinates...")
+
+        rflat = r_grid_xy.ravel()
+        for iz in range(Nz):
+            slice_r = rho[:, iz, 0]             
+            vals_flat = np.interp(rflat, r, slice_r, left=slice_r[0], right=slice_r[-1])
+            vol[iz, :, :] = vals_flat.reshape(Ny, Nx)
+
+        return vol
+
+    def get_data(self,fields,level,dtype=None):
+
+        dens, ND, geometry = self.read4Flash(fields,level)
+
+        if ND == 2:
+            if geometry == 'cylindrical':
+                density = np.array(dens[2:-2,2:-2,2:-2].T, order='C', dtype=dtype)
+            else:
+                density = np.array(dens[:,:,0], order='C', dtype=dtype)
+        elif ND == 3:
             density = np.array(dens.T, order='C', dtype=dtype)
 		
         return density
