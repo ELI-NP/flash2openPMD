@@ -32,6 +32,4 @@ PIConGPU simulation by using the profile converted from FLASH. The figure shows 
 
 The output from cylindrical geometry simulation is rotated by 360 degree around its axis of symmetry to obtain 3D Cartesian geometry array.
 
-<img src="Data/water_hdf5_plt_cnt_0050_Slice_theta_density.png" alt="text" width="300"/>
-
-<img src="Data/3DRotated.png" alt="text" width="300"/>
+<img src="Data/water_hdf5_plt_cnt_0050_Slice_theta_density.png" alt="text" width="400"/> <img src="Data/3DRotated.png" alt="text" width="400"/>
