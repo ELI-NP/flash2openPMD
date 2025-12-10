@@ -89,8 +89,11 @@ class Convert(object):
                                     left_edge=ds.domain_left_edge, 
                                     dims=ds.domain_dimensions * scale,
                                     )
-
-        density = self.cylindricalRotateAxial(all_data,fields=f"{fields}")
+        
+        if ds.geometry == 'cylindrical':
+            density = self.cylindricalRotateAxial(all_data,fields=f"{fields}")
+        else:
+            density = all_data[('gas',f"{fields}")]
 
         return density, ND, ds.geometry
     
@@ -147,9 +150,9 @@ class Convert(object):
             if geometry == 'cylindrical':
                 density = np.array(dens[2:-2,2:-2,2:-2].T, order='C', dtype=dtype)
             else:
-                density = np.array(dens[:,:,0], order='C', dtype=dtype)
+                density = np.array(dens[2:-2,2:-2,0], order='C', dtype=dtype)
         elif ND == 3:
-            density = np.array(dens.T, order='C', dtype=dtype)
+            density = np.array(dens[2:-2,2:-2,2:-2].T, order='C', dtype=dtype)
 		
         return density
 
