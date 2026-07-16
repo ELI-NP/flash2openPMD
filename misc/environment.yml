@@ -1,0 +1,38 @@
+name: flash2openpmd
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.10
+  - numpy
+  - scipy
+  - matplotlib
+  - yt
+  - h5py
+  - pip
+  - pip:
+      - openpmd-api
+      - scienceplots
+  # Optional: GPU acceleration for the cylindrical-to-Cartesian rotation
+  # step. flash2openpmd falls back to CPU automatically when torch or a
+  # working CUDA device isn't available.
+  #
+  # cuda-version is pinned to 12 (not 13) because conda-forge's CUDA-13
+  # pytorch builds dropped sm_50/sm_60/sm_70 kernels; on older GPUs (e.g.
+  # compute capability 6.1 Pascal cards) torch.cuda.is_available() then
+  # returns True but every real kernel launch fails with
+  # "no kernel image is available for execution on the device". The
+  # CUDA-12 build still ships those kernels. If you have a newer GPU and
+  # want the latest CUDA build, this pin can be dropped.
+  - pytorch
+  - cuda-version=12
+
+# Note: h5py is required explicitly - yt's FLASH/openPMD readers depend on
+# it (yt.load() otherwise fails with YTUnidentifiedDataType) but the
+# conda-forge yt package doesn't always pull it in transitively.
+#
+# Separately, conda's h5py/hdf5 build can end up linked against a
+# different libhdf5 than the pip-installed openpmd-api wheel, causing an
+# "HDF5 library version mismatched" error at import time. If you hit that,
+# fix it with:
+#   pip install h5py --upgrade --no-dependencies --force-reinstall
+# src/launch.py checks for and offers to run this automatically.
