@@ -117,21 +117,25 @@ class Flash2OpenPMDGUI:
         post_frame.columnconfigure(1, weight=1)
 
         self.normalize_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(post_frame, text="Normalize to max", variable=self.normalize_var,
+        ttk.Checkbutton(post_frame, text="Normalize", variable=self.normalize_var,
                          command=self._invalidate_preview).grid(row=0, column=0, columnspan=2, sticky="w")
 
+        self.normalize_value_var = tk.StringVar(value="max")
+        self._add_labeled_entry(post_frame, 1, "Normalize to:", self.normalize_value_var)
+
         self.threshold_var = tk.StringVar(value="1e-4")
-        self._add_labeled_entry(post_frame, 1, "Threshold:", self.threshold_var)
+        self._add_labeled_entry(post_frame, 2, "Threshold:", self.threshold_var)
 
         self.log_scale_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(post_frame, text="Log scale", variable=self.log_scale_var,
-                         command=self._on_display_option_changed).grid(row=2, column=0, columnspan=2, sticky="w")
+                         command=self._on_display_option_changed).grid(row=3, column=0, columnspan=2, sticky="w")
 
         self.cmap_var = tk.StringVar(value="jet")
-        self._add_labeled_combo(post_frame, 3, "Colormap:", self.cmap_var,
+        self._add_labeled_combo(post_frame, 4, "Colormap:", self.cmap_var,
                                  ["jet", "viridis", "plasma", "inferno"], on_change=self._on_display_option_changed)
 
-        for var in (self.fields_var, self.species_var, self.output_name_var, self.author_var, self.threshold_var):
+        for var in (self.fields_var, self.species_var, self.output_name_var, self.author_var,
+                    self.normalize_value_var, self.threshold_var):
             var.trace_add("write", lambda *_: self._invalidate_preview())
         for var in (self.level_var, self.dtype_var, self.device_var, self.geometry_var):
             var.trace_add("write", lambda *_: self._invalidate_preview())
@@ -265,10 +269,20 @@ class Flash2OpenPMDGUI:
             device=self.device_var.get(),
             geometry=self.geometry_var.get(),
             normalize=self.normalize_var.get(),
+            normalize_value=self._parse_normalize_value(),
             threshold=float(self.threshold_var.get() or 0),
             log_scale=self.log_scale_var.get(),
             cmap=self.cmap_var.get(),
         )
+
+    def _parse_normalize_value(self):
+        raw = self.normalize_value_var.get().strip()
+        if not raw or raw.lower() == "max":
+            return None
+        value = float(raw)
+        if value == 0:
+            raise ValueError("normalize value must be non-zero")
+        return value
 
     def _invalidate_preview(self):
         self.density = None
@@ -407,7 +421,8 @@ class Flash2OpenPMDGUI:
             self.file_sizes = (input_size, density.nbytes)
 
             if params["normalize"]:
-                density = density / density.max()
+                norm_value = params["normalize_value"]
+                density = density / (density.max() if norm_value is None else norm_value)
             if params["threshold"] > 0:
                 density[density <= params["threshold"]] = 0
 
