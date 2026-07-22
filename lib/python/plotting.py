@@ -123,7 +123,7 @@ def make_preview_figure(density, log_scale=True, cmap="jet", title="", fig=None,
             positive = data[data > 0]
             if positive.size:
                 norm = LogNorm(vmin=positive.min(), vmax=data.max())
-        img = ax.imshow(data.T, origin="lower", norm=norm, cmap=cmap, aspect="auto")
+        img = ax.imshow(data, origin="lower", norm=norm, cmap=cmap, aspect="auto")
         fig.colorbar(img, ax=ax, orientation="vertical")
         ax.set_xlabel(remaining_labels[1])
         ax.set_ylabel(remaining_labels[0])

@@ -267,7 +267,7 @@ class Convert(object):
 
         if ND == 2:
             if geom == 'cylindrical':
-                density = np.array(dens.T, order='C', dtype=dtype)
+                density = np.array(np.rot90(dens), order='C', dtype=dtype)
             else:
                 density = np.array(dens[:,:,0], order='C', dtype=dtype)
         elif ND == 3:
