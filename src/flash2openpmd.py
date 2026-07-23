@@ -269,7 +269,7 @@ class Convert(object):
             if geom == 'cylindrical':
                 density = np.array(np.rot90(dens), order='C', dtype=dtype)
             else:
-                density = np.array(dens[:,:,0], order='C', dtype=dtype)
+                density = np.array(dens[:,:,0].T, order='C', dtype=dtype)
         elif ND == 3:
             density = np.array(dens.T, order='C', dtype=dtype)
 
@@ -294,8 +294,10 @@ class Convert(object):
             density_input.shape)
         n_e_mrc.reset_dataset(dataset)
 
+        axis_labels = ['z', 'y', 'x'] if density_input.ndim == 3 else ['y', 'x']
+
         n_e_out.set_attribute('dataOrder','C')
-        n_e_out.set_attribute('axisLabels',['z','y','x'])
+        n_e_out.set_attribute('axisLabels', axis_labels)
         n_e_mrc.store_chunk(density_input)
         # After registering a data chunk such as x_data and y_data,
         # it MUST NOT be modified or deleted until the flush() step is performed!
@@ -304,6 +306,24 @@ class Convert(object):
         del series_out
 
         return output_path
+
+
+class _NormalizeAction(argparse.Action):
+    """--normalize [VALUE] enables normalization (dividing by VALUE, or by the
+    global max if VALUE is omitted); --no-normalize disables it."""
+
+    def __init__(self, option_strings, dest, default=True, help=None):
+        opts = list(option_strings)
+        for opt in option_strings:
+            if opt.startswith("--"):
+                opts.append("--no-" + opt[2:])
+        super().__init__(opts, dest, nargs="?", type=float, default=default, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if option_string.startswith("--no-"):
+            setattr(namespace, self.dest, False)
+        else:
+            setattr(namespace, self.dest, True if values is None else values)
 
 
 def _make_arg_parser():
@@ -327,8 +347,8 @@ def _make_arg_parser():
                          help="Override detected geometry (default: %(default)s)")
     parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto",
                          help="Interpolation device (default: %(default)s)")
-    parser.add_argument("--normalize", action=argparse.BooleanOptionalAction, default=True,
-                         help="Divide by global max (default: enabled)")
+    parser.add_argument("--normalize", action=_NormalizeAction, default=True,
+                         help="Divide by global max, or by VALUE if given (default: enabled, uses max)")
     parser.add_argument("--threshold", type=float, default=1e-4,
                          help="Zero out values <= threshold after normalization; 0 disables (default: %(default)s)")
     parser.add_argument("--author", default="Your Name <Your@email>",
@@ -361,7 +381,8 @@ def main(argv=None):
     print(f"Refined data size (after refine, level={args.level}): {format_bytes(density.nbytes)}")
 
     if args.normalize:
-        density = density / density.max()
+        divisor = density.max() if args.normalize is True else args.normalize
+        density = density / divisor
     if args.threshold > 0:
         density[density <= args.threshold] = 0
 

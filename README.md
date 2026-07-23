@@ -49,14 +49,24 @@ Simulation output from FLASH code.
 
 
 The openPMD output after 6 level refinement in both X and Y directions.
+
 <img src="src/output/visit0001.png" alt="text" width="400"/>
 
 
 PIConGPU simulation by using the profile converted from FLASH. The figure shows the electron density profile duing the interaction with the rising edge of the laser main pulse.
-<img src="src/output/dens_H_1384.png" alt="text" width="400"/> <img src="src/output/Ex_1384.png" alt="text" width="400"/>
+
+<img src="src/output/dens_H_1384.png" alt="text" height="300"/> <img src="src/output/Ex_1384.png" alt="text" height="300"/>
 
 #### Cylindrical geometry:
 
 The output from cylindrical geometry simulation is rotated by 360 degree around its axis of symmetry to obtain 3D Cartesian geometry array.
 
-<img src="src/output/water_hdf5_plt_cnt_0050_Slice_theta_density.png" alt="text" width="400"/> <img src="src/output/3DRotated.png" alt="text" width="400"/>
+<img src="src/output/water_hdf5_plt_cnt_0050_Slice_theta_density.png" alt="text" height="300"/> <img src="src/output/3DRotated.png" alt="text" height="300"/>
+
+#### GUI:
+
+The GUI lets you pick the run directory/file, set conversion parameters, preview the plot, and only writes to openPMD after confirming.
+
+<img src="src/output/GUI1.png" alt="text" width="700"/> 
+
+<img src="src/output/GUI2.png" alt="text" width="700"/>
