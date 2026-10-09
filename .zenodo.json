@@ -1,0 +1,33 @@
+{
+  "title": "Flash2OpenPMD: Conversion from FLASH to openPMD",
+  "upload_type": "software",
+  "description": "<p>Converts FLASH simulation output (HDF5 plot files) to the openPMD format, for use as initial density profiles in particle-in-cell codes such as PIConGPU. Supports Cartesian geometry and cylindrical (r, z) geometry, which is rotated about its axis of symmetry into a 3D Cartesian volume, with optional GPU acceleration. Provides both a command-line interface and a graphical user interface.</p>",
+  "creators": [
+    {
+      "name": "Ong, Jian Fuh",
+      "affiliation": "Extreme Light Infrastructure - Nuclear Physics (ELI-NP), Romania"
+    },
+    {
+      "name": "Borsos, Andrei Paul"
+    }
+  ],
+  "license": "GPL-3.0-only",
+  "access_right": "open",
+  "keywords": [
+    "FLASH",
+    "openPMD",
+    "PIConGPU",
+    "laser-plasma",
+    "particle-in-cell",
+    "hydrodynamics",
+    "simulation",
+    "HDF5"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/ELI-NP/flash2openPMD",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}

@@ -70,3 +70,9 @@ The GUI lets you pick the run directory/file, set conversion parameters, preview
 <img src="src/output/GUI1.png" alt="text" width="700"/> 
 
 <img src="src/output/GUI2.png" alt="text" width="700"/>
+
+## Citation
+
+If you use Flash2OpenPMD in your work, please cite it. Citation metadata is in
+[`CITATION.cff`](CITATION.cff) (GitHub shows a "Cite this repository" button
+for it), and each GitHub release is archived on Zenodo with a DOI.
