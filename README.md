@@ -75,8 +75,20 @@ The GUI lets you pick the run directory/file, set conversion parameters, preview
 
 ## Citation
 
-If you use Flash2OpenPMD in your work, please cite it. Citation metadata is in
-[`CITATION.cff`](CITATION.cff) (GitHub shows a "Cite this repository" button
-for it), and each GitHub release is archived on Zenodo with a DOI.
-To cite all versions, use DOI
-[10.5281/zenodo.23261567](https://doi.org/10.5281/zenodo.23261567).
+If this code contributed to your work, please cite the archived release:
+
+> Ong, J. F., & Borsos, A. P. (2026). *Flash2OpenPMD: Conversion from FLASH to openPMD* (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.23261568
+
+```bibtex
+@software{ong_flash2openpmd_2026,
+  author    = {Ong, Jian Fuh and Borsos, Andrei Paul},
+  title     = {Flash2OpenPMD: Conversion from FLASH to openPMD},
+  version   = {v1.0.0},
+  publisher = {Zenodo},
+  year      = {2026},
+  doi       = {10.5281/zenodo.23261568},
+  url       = {https://doi.org/10.5281/zenodo.23261568}
+}
+```
+
+The DOI above pins v1.0.0. [10.5281/zenodo.23261567](https://doi.org/10.5281/zenodo.23261567) is the concept DOI, which always resolves to the newest release.
