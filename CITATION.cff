@@ -21,6 +21,7 @@ authors:
 repository-code: "https://github.com/ELI-NP/flash2openPMD"
 license: GPL-3.0-only
 version: 1.0.0
+doi: 10.5281/zenodo.23261567
 date-released: "2026-10-09"
 keywords:
   - FLASH

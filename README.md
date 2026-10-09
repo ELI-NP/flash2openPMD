@@ -1,6 +1,8 @@
 Conversion from FLASH to openPMD
 ================================
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23261567.svg)](https://doi.org/10.5281/zenodo.23261567)
+
 FLASH => openPMD (ELI-NP, Romania)
 
 ## QuickStart
@@ -76,3 +78,5 @@ The GUI lets you pick the run directory/file, set conversion parameters, preview
 If you use Flash2OpenPMD in your work, please cite it. Citation metadata is in
 [`CITATION.cff`](CITATION.cff) (GitHub shows a "Cite this repository" button
 for it), and each GitHub release is archived on Zenodo with a DOI.
+To cite all versions, use DOI
+[10.5281/zenodo.23261567](https://doi.org/10.5281/zenodo.23261567).
