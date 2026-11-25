@@ -20,21 +20,29 @@ from matplotlib.figure import Figure
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "lib", "python"))
 
-from flash2openpmd import Convert, resolve_device, list_available_fields, format_bytes
+from flash2openpmd import (Convert, resolve_device, list_available_fields, format_bytes,
+                           resolve_mesh_names, apply_normalization, is_density_field,
+                           CHARGE_STATE_FIELD)
 from plotting import make_preview_figure, axis_labels_for, default_slice_indices
 
 _ALL_AXES = ("z", "y", "x")
+_DEFAULT_FIELD = "El_number_density"
 
 
 class Flash2OpenPMDGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("FLASH to openPMD Converter")
-        self.root.geometry("1200x800")
+        self.root.geometry("1200x900")
 
-        self.density = None
+        self.data = None           # {field: array} from the last preview
+        self.mesh_names = None     # {field: mesh name} for the last preview
+        self.density = None        # the array currently displayed (one of self.data)
         self.density_params = None
         self.file_sizes = (0, 0)
+
+        self.available_fields = [_DEFAULT_FIELD]
+        self.field_rows = []       # one {field_var, name_var, widgets...} per field row
 
         self._setup_gui()
 
@@ -52,13 +60,14 @@ class Flash2OpenPMDGUI:
 
         left = ttk.Frame(main)
         left.grid(row=0, column=0, sticky="ns", padx=(0, 10))
+        left.rowconfigure(0, weight=1)
 
         right = ttk.Frame(main)
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
 
-        self._setup_left_panel(left)
+        self._setup_left_panel(self._make_scrollable(left), left)
         self._setup_right_panel(right)
 
         bottom = ttk.Frame(main)
@@ -71,7 +80,43 @@ class Flash2OpenPMDGUI:
         self.status_var = tk.StringVar(value="Ready")
         ttk.Label(bottom, textvariable=self.status_var).grid(row=1, column=0, sticky="w")
 
-    def _setup_left_panel(self, parent):
+    def _make_scrollable(self, parent):
+        """
+        A frame inside a vertically scrolling canvas at row 0 of `parent`, so
+        the settings stay reachable however many field rows are added.
+        """
+
+        background = ttk.Style().lookup("TFrame", "background") or None
+        canvas = tk.Canvas(parent, highlightthickness=0, borderwidth=0, background=background)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="ns")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        inner = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all"), width=inner.winfo_reqwidth()))
+
+        def scroll(event):
+            if event.num == 4 or getattr(event, "delta", 0) > 0:
+                canvas.yview_scroll(-1, "units")
+            else:
+                canvas.yview_scroll(1, "units")
+
+        def bind_wheel(_):
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                canvas.bind_all(seq, scroll)
+
+        def unbind_wheel(_):
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                canvas.unbind_all(seq)
+
+        inner.bind("<Enter>", bind_wheel)
+        inner.bind("<Leave>", unbind_wheel)
+        return inner
+
+    def _setup_left_panel(self, parent, button_parent):
         dir_frame = ttk.LabelFrame(parent, text="Input", padding="10")
         dir_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         dir_frame.columnconfigure(0, weight=1)
@@ -88,10 +133,11 @@ class Flash2OpenPMDGUI:
         self.filename_combo.bind("<<ComboboxSelected>>", lambda e: self._on_filename_changed())
         ttk.Button(dir_frame, text="Refresh", command=self._refresh_filenames).grid(row=3, column=1, padx=(5, 0))
 
-        params_frame = ttk.LabelFrame(parent, text="Parameters", padding="10")
-        params_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        self._setup_fields_panel(parent)
 
-        self.fields_var = tk.StringVar(value="El_number_density")
+        params_frame = ttk.LabelFrame(parent, text="Parameters", padding="10")
+        params_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+
         self.level_var = tk.IntVar(value=4)
         self.dtype_var = tk.StringVar(value="float32")
         self.species_var = tk.StringVar(value="e")
@@ -100,24 +146,21 @@ class Flash2OpenPMDGUI:
         self.device_var = tk.StringVar(value="auto")
         self.geometry_var = tk.StringVar(value="auto")
 
-        ttk.Label(params_frame, text="Field:").grid(row=0, column=0, sticky="w", pady=2)
-        self.fields_combo = ttk.Combobox(params_frame, textvariable=self.fields_var, width=18)
-        self.fields_combo.grid(row=0, column=1, sticky="ew", pady=2)
-        self._add_labeled_spinbox(params_frame, 1, "Level:", self.level_var, 0, 8)
-        self._add_labeled_combo(params_frame, 2, "Dtype:", self.dtype_var, ["float32", "float64"])
-        self._add_labeled_entry(params_frame, 3, "Species:", self.species_var)
-        self._add_labeled_entry(params_frame, 4, "Output name:", self.output_name_var)
-        self._add_labeled_entry(params_frame, 5, "Author:", self.author_var)
-        self._add_labeled_combo(params_frame, 6, "Device:", self.device_var, ["auto", "cuda", "cpu"])
-        self._add_labeled_combo(params_frame, 7, "Geometry:", self.geometry_var,
+        self._add_labeled_spinbox(params_frame, 0, "Level:", self.level_var, 0, 8)
+        self._add_labeled_combo(params_frame, 1, "Dtype:", self.dtype_var, ["float32", "float64"])
+        self._add_labeled_entry(params_frame, 2, "Species:", self.species_var)
+        self._add_labeled_entry(params_frame, 3, "Output name:", self.output_name_var)
+        self._add_labeled_entry(params_frame, 4, "Author:", self.author_var)
+        self._add_labeled_combo(params_frame, 5, "Device:", self.device_var, ["auto", "cuda", "cpu"])
+        self._add_labeled_combo(params_frame, 6, "Geometry:", self.geometry_var,
                                  ["auto", "cartesian", "cylindrical"])
 
         post_frame = ttk.LabelFrame(parent, text="Post-processing", padding="10")
-        post_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        post_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
         post_frame.columnconfigure(1, weight=1)
 
         self.normalize_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(post_frame, text="Normalize", variable=self.normalize_var,
+        ttk.Checkbutton(post_frame, text="Normalize (density fields only)", variable=self.normalize_var,
                          command=self._invalidate_preview).grid(row=0, column=0, columnspan=2, sticky="w")
 
         self.normalize_value_var = tk.StringVar(value="max")
@@ -126,15 +169,28 @@ class Flash2OpenPMDGUI:
         self.threshold_var = tk.StringVar(value="1e-4")
         self._add_labeled_entry(post_frame, 2, "Threshold:", self.threshold_var)
 
+        self.density_hint_var = tk.StringVar(value="")
+        ttk.Label(post_frame, textvariable=self.density_hint_var, foreground="gray",
+                  wraplength=240, justify="left").grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 4))
+
         self.log_scale_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(post_frame, text="Log scale", variable=self.log_scale_var,
-                         command=self._on_display_option_changed).grid(row=3, column=0, columnspan=2, sticky="w")
+                         command=self._on_display_option_changed).grid(row=4, column=0, columnspan=2, sticky="w")
 
         self.cmap_var = tk.StringVar(value="jet")
-        self._add_labeled_combo(post_frame, 4, "Colormap:", self.cmap_var,
+        self._add_labeled_combo(post_frame, 5, "Colormap:", self.cmap_var,
                                  ["jet", "viridis", "plasma", "inferno"], on_change=self._on_display_option_changed)
 
-        for var in (self.fields_var, self.species_var, self.output_name_var, self.author_var,
+        self.show_field_var = tk.StringVar(value="")
+        ttk.Label(post_frame, text="Show field:").grid(row=6, column=0, sticky="w", pady=2)
+        self.show_field_combo = ttk.Combobox(post_frame, textvariable=self.show_field_var,
+                                              state="disabled", width=18)
+        self.show_field_combo.grid(row=6, column=1, sticky="ew", pady=2)
+        self.show_field_combo.bind("<<ComboboxSelected>>", lambda e: self._on_show_field_changed())
+
+        self._update_density_hint()
+
+        for var in (self.species_var, self.output_name_var, self.author_var,
                     self.normalize_value_var, self.threshold_var):
             var.trace_add("write", lambda *_: self._invalidate_preview())
         for var in (self.level_var, self.dtype_var, self.device_var, self.geometry_var):
@@ -142,8 +198,8 @@ class Flash2OpenPMDGUI:
 
         self._setup_slice_panel(parent)
 
-        button_frame = ttk.Frame(parent)
-        button_frame.grid(row=4, column=0, sticky="ew")
+        button_frame = ttk.Frame(button_parent)
+        button_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         button_frame.columnconfigure(0, weight=1)
 
         self.preview_btn = ttk.Button(button_frame, text="Generate Preview", command=self._on_generate_preview)
@@ -151,6 +207,87 @@ class Flash2OpenPMDGUI:
 
         self.write_btn = ttk.Button(button_frame, text="Write to openPMD", command=self._on_write, state="disabled")
         self.write_btn.grid(row=1, column=0, sticky="ew")
+
+    def _setup_fields_panel(self, parent):
+        fields_frame = ttk.LabelFrame(parent, text="Fields", padding="10")
+        fields_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        fields_frame.columnconfigure(0, weight=1)
+
+        header = ttk.Frame(fields_frame)
+        header.grid(row=0, column=0, sticky="ew")
+        ttk.Label(header, text="Field", width=20).grid(row=0, column=0, sticky="w")
+        ttk.Label(header, text="Mesh name (optional)").grid(row=0, column=1, sticky="w", padx=(5, 0))
+
+        self.field_rows_frame = ttk.Frame(fields_frame)
+        self.field_rows_frame.grid(row=1, column=0, sticky="ew")
+        self.field_rows_frame.columnconfigure(0, weight=1)
+
+        ttk.Button(fields_frame, text="+ Add field", command=self._add_field_row).grid(
+            row=2, column=0, sticky="w", pady=(4, 0))
+
+        self.charge_state_var = tk.BooleanVar(value=False)
+        self.charge_state_check = ttk.Checkbutton(
+            fields_frame, text=f"Charge state ({CHARGE_STATE_FIELD})", variable=self.charge_state_var,
+            command=self._on_fields_changed)
+        self.charge_state_check.grid(row=3, column=0, sticky="w", pady=(4, 0))
+
+        self._add_field_row(_DEFAULT_FIELD, notify=False)
+
+    def _add_field_row(self, field=None, notify=True):
+        """Append a field row: a field dropdown, an optional mesh name and a remove button."""
+
+        if field is None:
+            used = set(self._selected_fields())
+            field = next((f for f in self.available_fields if f not in used), self.available_fields[0])
+
+        field_var = tk.StringVar(value=field)
+        name_var = tk.StringVar(value="")
+        combo = ttk.Combobox(self.field_rows_frame, textvariable=field_var,
+                              values=self.available_fields, state="readonly", width=20)
+        combo.bind("<<ComboboxSelected>>", lambda e: self._on_fields_changed())
+        name_entry = ttk.Entry(self.field_rows_frame, textvariable=name_var, width=12)
+        name_var.trace_add("write", lambda *_: self._invalidate_preview())
+
+        row = {"field_var": field_var, "name_var": name_var, "combo": combo, "name_entry": name_entry}
+        row["remove_btn"] = ttk.Button(self.field_rows_frame, text="X", width=2,
+                                        command=lambda: self._remove_field_row(row))
+        self.field_rows.append(row)
+        self._regrid_field_rows()
+        if notify:
+            self._on_fields_changed()
+
+    def _remove_field_row(self, row):
+        if len(self.field_rows) <= 1:
+            return
+        self.field_rows.remove(row)
+        for key in ("combo", "name_entry", "remove_btn"):
+            row[key].destroy()
+        self._regrid_field_rows()
+        self._on_fields_changed()
+
+    def _regrid_field_rows(self):
+        for i, row in enumerate(self.field_rows):
+            row["combo"].grid(row=i, column=0, sticky="ew", pady=1)
+            row["name_entry"].grid(row=i, column=1, sticky="ew", padx=(5, 0), pady=1)
+            row["remove_btn"].grid(row=i, column=2, padx=(5, 0), pady=1)
+            row["remove_btn"]["state"] = "normal" if len(self.field_rows) > 1 else "disabled"
+
+    def _on_fields_changed(self):
+        self._update_density_hint()
+        self._invalidate_preview()
+
+    def _update_density_hint(self):
+        """Show which of the chosen fields Normalize/Threshold act on."""
+
+        fields = self._selected_fields()
+        if self.charge_state_var.get() and CHARGE_STATE_FIELD not in fields:
+            fields.append(CHARGE_STATE_FIELD)
+        density = [f for f in dict.fromkeys(fields) if is_density_field(f)]
+        if density:
+            text = "Normalize and threshold apply only to: " + ", ".join(density)
+        else:
+            text = "No density field chosen: normalize and threshold have no effect."
+        self.density_hint_var.set(text + "\nOther fields (charge state, temperatures in keV) are not normalized.")
 
     def _add_labeled_entry(self, parent, row, label, var):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=2)
@@ -169,7 +306,7 @@ class Flash2OpenPMDGUI:
 
     def _setup_slice_panel(self, parent):
         slice_frame = ttk.LabelFrame(parent, text="Slice (2D/3D -> plottable)", padding="10")
-        slice_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        slice_frame.grid(row=4, column=0, sticky="ew", pady=(0, 10))
         slice_frame.columnconfigure(1, weight=1)
 
         self.slice_vars = {}
@@ -247,10 +384,25 @@ class Flash2OpenPMDGUI:
             self.root.after(0, self.status_var.set, f"Field list unavailable: {exc}")
 
     def _fields_loaded(self, fields):
-        self.fields_combo["values"] = fields
-        if fields and self.fields_var.get() not in fields:
-            self.fields_var.set(fields[0])
-        self.status_var.set(f"Loaded {len(fields)} fields")
+        if fields:
+            self.available_fields = fields
+        fallback = _DEFAULT_FIELD if _DEFAULT_FIELD in self.available_fields else self.available_fields[0]
+        for row in self.field_rows:
+            row["combo"]["values"] = self.available_fields
+            if row["field_var"].get() not in self.available_fields:
+                row["field_var"].set(fallback)
+
+        has_charge_state = CHARGE_STATE_FIELD in fields
+        self.charge_state_check["state"] = "normal" if has_charge_state else "disabled"
+        if not has_charge_state:
+            self.charge_state_var.set(False)
+
+        self._on_fields_changed()
+        self.status_var.set(f"Loaded {len(fields)} fields" +
+                            ("" if has_charge_state else " (charge state unavailable)"))
+
+    def _selected_fields(self):
+        return [row["field_var"].get() for row in self.field_rows if row["field_var"].get()]
 
     # ------------------------------------------------------------------
     # Parameter collection / preview invalidation
@@ -260,7 +412,7 @@ class Flash2OpenPMDGUI:
         return dict(
             run_directory=self.run_dir_var.get(),
             filename=self.filename_var.get(),
-            fields=self.fields_var.get(),
+            field_specs=self._field_specs(),
             level=int(self.level_var.get()),
             dtype=self.dtype_var.get(),
             species=self.species_var.get(),
@@ -275,6 +427,23 @@ class Flash2OpenPMDGUI:
             cmap=self.cmap_var.get(),
         )
 
+    def _field_specs(self):
+        """(field, mesh name or None) for each field row, plus charge state if ticked."""
+
+        specs = []
+        for row in self.field_rows:
+            field = row["field_var"].get()
+            if not field:
+                continue
+            if field in [f for f, _ in specs]:
+                raise ValueError(f"field {field!r} is chosen more than once")
+            specs.append((field, row["name_var"].get().strip() or None))
+        if self.charge_state_var.get() and CHARGE_STATE_FIELD not in [f for f, _ in specs]:
+            specs.append((CHARGE_STATE_FIELD, None))
+        if not specs:
+            raise ValueError("select at least one field")
+        return specs
+
     def _parse_normalize_value(self):
         raw = self.normalize_value_var.get().strip()
         if not raw or raw.lower() == "max":
@@ -285,9 +454,17 @@ class Flash2OpenPMDGUI:
         return value
 
     def _invalidate_preview(self):
+        self.data = None
         self.density = None
         self.write_btn["state"] = "disabled"
+        self.show_field_combo["state"] = "disabled"
         self._set_slice_controls_enabled(False)
+
+    def _on_show_field_changed(self):
+        if self.data is None:
+            return
+        self.density = self.data[self.show_field_var.get()]
+        self._redraw_preview()
 
     def _on_display_option_changed(self):
         self._redraw_preview()
@@ -295,8 +472,9 @@ class Flash2OpenPMDGUI:
     def _redraw_preview(self):
         if self.density is None:
             return
+        title = f"{self.density_params.get('filename', '')}: {self.show_field_var.get()}"
         make_preview_figure(self.density, log_scale=self.log_scale_var.get(),
-                             cmap=self.cmap_var.get(), title=self.density_params.get("filename", ""),
+                             cmap=self.cmap_var.get(), title=title,
                              fig=self.figure, slice_indices=self._current_slice_indices())
         self.canvas.draw()
 
@@ -414,32 +592,48 @@ class Flash2OpenPMDGUI:
             print(f"Input file size (before refine): {format_bytes(input_size)}")
 
             self.root.after(0, self.status_var.set, f"Interpolating on {device}...")
-            density = ts.get_data(fields=params["fields"], level=params["level"], dtype=params["dtype"],
-                                   device=device, geometry=geometry)
+            mesh_names = resolve_mesh_names(params["field_specs"], params["species"])
+            fields = [f for f, _ in params["field_specs"]]
+            data = ts.get_fields(fields, level=params["level"], dtype=params["dtype"],
+                                 device=device, geometry=geometry)
 
-            print(f"Refined data size (after refine, level={params['level']}): {format_bytes(density.nbytes)}")
-            self.file_sizes = (input_size, density.nbytes)
+            total_bytes = sum(arr.nbytes for arr in data.values())
+            print(f"Refined data size (after refine, level={params['level']}, {len(data)} field(s)): "
+                  f"{format_bytes(total_bytes)}")
+            self.file_sizes = (input_size, total_bytes)
 
             if params["normalize"]:
                 norm_value = params["normalize_value"]
-                density = density / (density.max() if norm_value is None else norm_value)
-            if params["threshold"] > 0:
-                density[density <= params["threshold"]] = 0
+                normalize = True if norm_value is None else norm_value
+            else:
+                normalize = False
+            apply_normalization(data, normalize=normalize, threshold=params["threshold"])
 
-            self.root.after(0, self._preview_done, density, params)
+            self.root.after(0, self._preview_done, data, mesh_names, params)
         except Exception as exc:
             self.root.after(0, self._on_error, str(exc))
 
-    def _preview_done(self, density, params):
-        self.density = density
+    def _preview_done(self, data, mesh_names, params):
+        self.data = data
+        self.mesh_names = mesh_names
         self.density_params = params
 
+        fields = list(data)
+        shown = self.show_field_var.get()
+        if shown not in data:
+            shown = fields[0]
+        self.show_field_var.set(shown)
+        self.show_field_combo["values"] = fields
+        self.show_field_combo["state"] = "readonly"
+        self.density = data[shown]
+
         self._set_slice_controls_enabled(True)
-        self._configure_slice_controls(density)
+        self._configure_slice_controls(self.density)
         self._redraw_preview()
 
         before_size, after_size = self.file_sizes
-        self._set_idle(f"Preview ready - shape={density.shape}, max={density.max():.3e}  |  "
+        maxima = ", ".join(f"{f}={arr.max():.3e}" for f, arr in data.items())
+        self._set_idle(f"Preview ready - shape={self.density.shape}, max: {maxima}  |  "
                         f"file size before refine: {format_bytes(before_size)}, "
                         f"after refine: {format_bytes(after_size)}")
         self.write_btn["state"] = "normal"
@@ -449,17 +643,18 @@ class Flash2OpenPMDGUI:
     # ------------------------------------------------------------------
 
     def _on_write(self):
-        if self.density is None:
+        if self.data is None:
             messagebox.showwarning("Warning", "Generate a preview first.")
             return
 
         params = self.density_params
         output_path = os.path.join(params["run_directory"], f"{params['species']}_{params['output_name']}_0.h5")
 
+        meshes = "\n".join(f"  {f} -> {self.mesh_names[f]}" for f in self.data)
         if os.path.exists(output_path):
-            prompt = f"{output_path} already exists and will be overwritten. Continue?"
+            prompt = f"{output_path} already exists and will be overwritten.\n\nMeshes:\n{meshes}\n\nContinue?"
         else:
-            prompt = f"Write {output_path}?"
+            prompt = f"Write {output_path}?\n\nMeshes:\n{meshes}"
         if not messagebox.askyesno("Confirm", prompt):
             return
 
@@ -469,8 +664,9 @@ class Flash2OpenPMDGUI:
     def _write_worker(self, params):
         try:
             ts = Convert(params["run_directory"], params["filename"])
-            output_path = ts.write2openpmd(self.density, species=params["species"],
-                                            output_name=params["output_name"], author=params["author"])
+            output_path = ts.write2openpmd(self.data, species=params["species"],
+                                            output_name=params["output_name"], author=params["author"],
+                                            mesh_names=self.mesh_names)
             self.root.after(0, self._write_done, output_path)
         except Exception as exc:
             self.root.after(0, self._on_error, str(exc))
@@ -482,7 +678,7 @@ class Flash2OpenPMDGUI:
 
     def _on_error(self, message):
         self._set_idle("Error")
-        self.write_btn["state"] = "disabled" if self.density is None else "normal"
+        self.write_btn["state"] = "disabled" if self.data is None else "normal"
         messagebox.showerror("Error", message)
 
 

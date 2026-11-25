@@ -28,14 +28,184 @@ import glob
 from scipy import interpolate
 
 
+CHARGE_STATE_FIELD = "charge_state"
+
+def round_charge_state(zbar):
+    """
+    Integer charge state from the mean ionisation Zbar, rounded to the
+    nearest integer with halves rounded up (0.4 -> 0, 0.5 -> 1, 2.5 -> 3).
+    """
+
+    zbar = np.asarray(zbar)
+    return np.floor(zbar + 0.5).clip(min=0).astype(zbar.dtype)
+
+# k_B / (1e3 e): multiplies a temperature in kelvin to give it in keV.
+KELVIN_TO_KEV = sc.k / (1e3 * sc.e)
+
+
+def add_charge_state_field(ds):
+    """
+    Register the mean ionisation (charge state) Zbar as the derived field
+    ("gas", CHARGE_STATE_FIELD), if the FLASH file has what it needs.
+
+    A FLASH "zbar" variable is used directly when present. Otherwise Zbar is
+    derived from the mass-scalar variables ye = Zbar/Abar and sumy = 1/Abar
+    as Zbar = ye / sumy (0 where sumy <= 0). The field is the continuous
+    Zbar; read4Flash turns it into an integer after refinement (see
+    round_charge_state).
+
+    Returns True if the field was registered, False if the file has neither
+    "zbar" nor both "ye" and "sumy".
+    """
+
+    on_disk = set(ds.field_list)
+
+    if ("flash", "zbar") in on_disk:
+        def _charge_state(field, data):
+            return data.ds.arr(data["flash", "zbar"].d, "")
+    elif ("flash", "ye") in on_disk and ("flash", "sumy") in on_disk:
+        def _charge_state(field, data):
+            ye = data["flash", "ye"].d
+            sumy = data["flash", "sumy"].d
+            return data.ds.arr(np.divide(ye, sumy, out=np.zeros_like(ye), where=sumy > 0), "")
+    else:
+        return False
+
+    ds.add_field(("gas", CHARGE_STATE_FIELD), function=_charge_state,
+                 sampling_type="cell", units="", force_override=True)
+    return True
+
+
+def _field_key(ds, field):
+    """
+    The yt field tuple for `field`: the "gas" field of that name if yt has
+    one, else the raw on-disk FLASH variable (e.g. "tele", "ye").
+    """
+
+    if ("gas", field) in ds.derived_field_list:
+        return ("gas", field)
+    if ("flash", field) in ds.field_list:
+        return ("flash", field)
+    raise ValueError(f"Unknown field {field!r} in {ds.basename}")
+
+
+def temperature_to_kev_factor(ds, key):
+    """
+    The factor converting field `key` (a yt field tuple) from its native
+    units to keV if it is a temperature (e.g. FLASH "tele", "tion", "trad",
+    "temp"), else None.
+    """
+
+    units = ds.field_info[key].units
+    if not units:
+        return None
+    quantity = ds.quan(1.0, units)
+    if quantity.units.dimensions != yt.units.dimensions.temperature:
+        return None
+    return float(quantity.to("K").d) * KELVIN_TO_KEV
+
+
 def list_available_fields(run_directory, filename):
     """
     The "gas"-typed field names yt exposes for this FLASH file (on-disk and
-    derived), suitable for the --fields/Field parameter.
+    derived), the raw FLASH variables, and CHARGE_STATE_FIELD when it can
+    be derived; suitable for the --fields/Field parameter.
     """
 
     ds = yt.load(os.path.join(run_directory, filename))
-    return sorted({name for ftype, name in ds.derived_field_list if ftype == "gas"})
+    names = {name for ftype, name in ds.derived_field_list if ftype == "gas"}
+    names.update(name for ftype, name in ds.field_list if ftype == "flash")
+    if add_charge_state_field(ds):
+        names.add(CHARGE_STATE_FIELD)
+    return sorted(names)
+
+
+def parse_field_specs(specs):
+    """
+    Parse field specifications into an ordered list of (field, mesh_name)
+    pairs, mesh_name being None when the field is not renamed.
+
+    `specs` is a string or an iterable of strings; each string may hold
+    several comma-separated items, and each item is "field" or
+    "field=mesh_name". Duplicate fields are dropped (first one wins).
+    """
+
+    if isinstance(specs, str):
+        specs = [specs]
+
+    parsed = []
+    seen = set()
+    for spec in specs:
+        for item in spec.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            field, sep, name = item.partition("=")
+            field, name = field.strip(), name.strip()
+            if not field or (sep and not name):
+                raise ValueError(f"Invalid field specification {item!r}; use 'field' or 'field=name'")
+            if field in seen:
+                continue
+            seen.add(field)
+            parsed.append((field, name or None))
+
+    if not parsed:
+        raise ValueError("No fields given")
+    return parsed
+
+
+def resolve_mesh_names(specs, species):
+    """
+    Map each field of `specs` (from parse_field_specs) to its openPMD mesh
+    name: the rename if given, else the field name. A single field without
+    a rename keeps the historical name "<species>_density".
+    """
+
+    if len(specs) == 1 and specs[0][1] is None:
+        return {specs[0][0]: f"{species}_density"}
+
+    mesh_names = {field: (name or field) for field, name in specs}
+    names = list(mesh_names.values())
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(f"Duplicate mesh name(s): {', '.join(duplicates)}")
+    return mesh_names
+
+
+def is_density_field(field):
+    """Whether `field` is normalized/thresholded by apply_normalization."""
+
+    return "density" in field.lower()
+
+
+def apply_normalization(data, normalize=True, threshold=0.0):
+    """
+    Normalize and threshold the density fields of `data` ({field: array}),
+    in place, returning `data`.
+
+    All density fields (see is_density_field) share one divisor, so their
+    ratios are preserved: `normalize` if it is a number, else the maximum
+    of the first density field when it is True; False disables it. Values
+    <= threshold are then zeroed in the density fields (threshold <= 0
+    disables it). Other fields, e.g. CHARGE_STATE_FIELD, are untouched.
+    """
+
+    density_fields = [f for f in data if is_density_field(f)]
+    if not density_fields:
+        return data
+
+    if normalize is not False and normalize is not None:
+        divisor = data[density_fields[0]].max() if normalize is True else normalize
+        if divisor == 0:
+            raise ValueError(f"Cannot normalize: divisor is 0 (max of {density_fields[0]})")
+        for field in density_fields:
+            data[field] = data[field] / divisor
+
+    if threshold > 0:
+        for field in density_fields:
+            data[field][data[field] <= threshold] = 0
+
+    return data
 
 
 def format_bytes(n):
@@ -149,21 +319,16 @@ class Convert(object):
 
         Parameters
         ----------
-        x_min : float
-            The minimum boundary in x direction in the unit of centimeter (unit of FLASH code)
-
-        y_min : float
-            The minimum boundary in y direction in the unit of centimeter (unit of FLASH code)
-
-        z_min : float
-            The minimum boundary in y direction in the unit of centimeter (unit of FLASH code)
-            z_min=0 for 2D simulation
-
-        field : string
-        	The field data (unit of FLASH code), i.e. fields="El_number_density"
+        fields : string or list of strings
+        	The field data (unit of FLASH code), i.e. fields="El_number_density".
+        	A list reads several fields from the same refined grid.
+        	CHARGE_STATE_FIELD ("charge_state") is available when the
+        	file allows it (see add_charge_state_field) and is made an
+        	integer after refinement (see round_charge_state). Temperature fields are
+        	converted from K to keV.
 
         level : int
-            The level of refinement using yt-project. Currently fixed to level=4
+            The level of refinement using yt-project.
 
         geometry : string or None
             Override the geometry detected by yt ("cartesian" or "cylindrical").
@@ -174,11 +339,22 @@ class Convert(object):
 
         Returns
         -------
-        A 2d array containing the required density, shape and maximum boundary in each direction.
+        The raw field array (a {field: array} dict when `fields` is a list,
+        temperatures in keV), the dimensionality and the geometry.
 
         """
 
+        single = isinstance(fields, str)
+        field_list = [fields] if single else list(fields)
+
         ds = yt.load(self.path_to_sim)
+
+        has_charge_state = add_charge_state_field(ds)
+        if CHARGE_STATE_FIELD in field_list and not has_charge_state:
+            raise ValueError(f"{CHARGE_STATE_FIELD} is unavailable: the FLASH file has "
+                             "neither 'zbar' nor both 'ye' and 'sumy'")
+        keys = {field: _field_key(ds, field) for field in field_list}
+        kev_factors = {field: temperature_to_kev_factor(ds, key) for field, key in keys.items()}
 
         ND = ds.dimensionality
         geom = geometry or ds.geometry
@@ -197,12 +373,21 @@ class Convert(object):
                                     dims=ds.domain_dimensions * scale,
                                     )
 
-        if geom == 'cylindrical':
-            density = self.cylindricalRotateAxial(all_data,fields=f"{fields}",device=device)
-        else:
-            density = all_data[('gas',f"{fields}")]
+        data = {}
+        for field in field_list:
+            print(f"Reading field: {field}")
+            if geom == 'cylindrical':
+                data[field] = self.cylindricalRotateAxial(all_data,fields=keys[field],device=device)
+            else:
+                data[field] = np.asarray(all_data[keys[field]])
+            if kev_factors[field] is not None:
+                print(f"Converting {field} from K to keV")
+                data[field] = data[field] * kev_factors[field]
+            if field == CHARGE_STATE_FIELD:
+                print(f"Rounding {field} to the nearest integer")
+                data[field] = round_charge_state(data[field])
 
-        return density, ND, geom
+        return (data[fields] if single else data), ND, geom
     
     def cylindricalRotateAxial(self,array,fields,device="cpu"):
         """
@@ -225,7 +410,9 @@ class Convert(object):
 
         """
 
-        rho = array[(f'{fields}')]
+        if isinstance(fields, str):
+            fields = ('gas', fields)
+        rho = array[fields]
         r = array[("index","r")].v[:,0].ravel()
         z = array[("index","z")].v[0,:].ravel()
 
@@ -261,21 +448,48 @@ class Convert(object):
 
         return vol
 
-    def get_data(self,fields,level,dtype=None,device="cpu",geometry=None):
-
-        dens, ND, geom = self.read4Flash(fields,level,geometry=geometry,device=device)
+    @staticmethod
+    def _orient(raw, ND, geom, dtype=None):
+        """Reorder a raw field array into the C-ordered (z,)y,x layout written to openPMD."""
 
         if ND == 2:
             if geom == 'cylindrical':
-                density = np.array(np.rot90(dens), order='C', dtype=dtype)
-            else:
-                density = np.array(dens[:,:,0].T, order='C', dtype=dtype)
-        elif ND == 3:
-            density = np.array(dens.T, order='C', dtype=dtype)
+                return np.array(np.rot90(raw), order='C', dtype=dtype)
+            return np.array(raw[:,:,0].T, order='C', dtype=dtype)
+        return np.array(raw.T, order='C', dtype=dtype)
 
-        return density
+    def get_fields(self,fields,level,dtype=None,device="cpu",geometry=None):
+        """
+        Read several fields from the same refined grid.
 
-    def write2openpmd(self,density_input,species,output_name,author="Your Name <Your@email>"):
+        Returns an ordered {field: array} dict, each array laid out as
+        get_data returns it.
+        """
+
+        raw, ND, geom = self.read4Flash(list(fields),level,geometry=geometry,device=device)
+        return {field: self._orient(arr, ND, geom, dtype) for field, arr in raw.items()}
+
+    def get_data(self,fields,level,dtype=None,device="cpu",geometry=None):
+
+        return self.get_fields([fields],level,dtype=dtype,device=device,geometry=geometry)[fields]
+
+    def write2openpmd(self,data,species,output_name,author="Your Name <Your@email>",mesh_names=None):
+        """
+        Write to <run_directory>/<species>_<output_name>_0.h5.
+
+        `data` is either a single array, written as the mesh
+        "<species>_density", or a {field: array} dict, each entry written
+        as its own scalar mesh in the same iteration. `mesh_names` maps
+        fields to mesh names (default: the field names).
+        """
+
+        if isinstance(data, np.ndarray):
+            meshes = {f"{species}_density": data}
+        else:
+            mesh_names = mesh_names or {}
+            meshes = {mesh_names.get(field, field): arr for field, arr in data.items()}
+            if len(meshes) != len(data):
+                raise ValueError("Duplicate mesh names in mesh_names")
 
         os.makedirs(self.run_directory, exist_ok=True)
         output_path = os.path.join(self.run_directory, f"{species}_{output_name}_0.h5")
@@ -285,21 +499,20 @@ class Convert(object):
         k = series_out.iterations[0]
 
         series_out.author = author
-        # record - again,important to specify as scalar
-        n_e_out = k.meshes[f"{species}_density"]
-        n_e_mrc = n_e_out[io.Mesh_Record_Component.SCALAR]
 
-        dataset = io.Dataset(
-            density_input.dtype,
-            density_input.shape)
-        n_e_mrc.reset_dataset(dataset)
+        for mesh_name, array in meshes.items():
+            # record - again,important to specify as scalar
+            mesh = k.meshes[mesh_name]
+            mrc = mesh[io.Mesh_Record_Component.SCALAR]
 
-        axis_labels = ['z', 'y', 'x'] if density_input.ndim == 3 else ['y', 'x']
+            mrc.reset_dataset(io.Dataset(array.dtype, array.shape))
 
-        n_e_out.set_attribute('dataOrder','C')
-        n_e_out.set_attribute('axisLabels', axis_labels)
-        n_e_mrc.store_chunk(density_input)
-        # After registering a data chunk such as x_data and y_data,
+            axis_labels = ['z', 'y', 'x'] if array.ndim == 3 else ['y', 'x']
+
+            mesh.set_attribute('dataOrder','C')
+            mesh.set_attribute('axisLabels', axis_labels)
+            mrc.store_chunk(array)
+        # After registering a data chunk,
         # it MUST NOT be modified or deleted until the flush() step is performed!
         series_out.flush()
 
@@ -333,8 +546,14 @@ def _make_arg_parser():
     )
     parser.add_argument("run_directory", help="Directory containing FLASH output")
     parser.add_argument("filename", help="FLASH plot file, e.g. slab_hdf5_plt_cnt_0047")
-    parser.add_argument("--fields", default="El_number_density",
-                         help="yt field name (default: %(default)s)")
+    parser.add_argument("--fields", nargs="+", default=["El_number_density"], metavar="FIELD",
+                         help="yt field name(s), space- or comma-separated, all written to one file "
+                              "on the same grid. FIELD=NAME sets the mesh name (default: the field "
+                              "name; a single unrenamed field is written as <species>_density). "
+                              "Default: El_number_density")
+    parser.add_argument("--charge-state", action="store_true",
+                         help=f"Also write the mean ionisation, rounded to the nearest integer, as "
+                              f"field '{CHARGE_STATE_FIELD}' (FLASH zbar, or ye/sumy); skipped with a warning if unavailable")
     parser.add_argument("--level", type=int, default=4,
                          help="AMR refinement level (default: %(default)s)")
     parser.add_argument("--dtype", choices=["float32", "float64"], default="float32",
@@ -348,9 +567,13 @@ def _make_arg_parser():
     parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto",
                          help="Interpolation device (default: %(default)s)")
     parser.add_argument("--normalize", action=_NormalizeAction, default=True,
-                         help="Divide by global max, or by VALUE if given (default: enabled, uses max)")
+                         help="Divide all density fields by the max of the first density field, "
+                              "or by VALUE if given; other fields (e.g. charge state) are left "
+                              "unchanged, except temperatures, which are written in keV "
+                              "(default: enabled, uses max)")
     parser.add_argument("--threshold", type=float, default=1e-4,
-                         help="Zero out values <= threshold after normalization; 0 disables (default: %(default)s)")
+                         help="Zero out density-field values <= threshold after normalization; "
+                              "0 disables (default: %(default)s)")
     parser.add_argument("--author", default="Your Name <Your@email>",
                          help="openPMD author attribute")
     parser.add_argument("--preview", action=argparse.BooleanOptionalAction, default=True,
@@ -364,8 +587,33 @@ def _make_arg_parser():
     return parser
 
 
+def charge_state_available(run_directory, filename):
+    """Whether CHARGE_STATE_FIELD can be derived for this FLASH file."""
+
+    return add_charge_state_field(yt.load(os.path.join(run_directory, filename)))
+
+
 def main(argv=None):
-    args = _make_arg_parser().parse_args(argv)
+    parser = _make_arg_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        specs = parse_field_specs(args.fields)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    if args.charge_state and CHARGE_STATE_FIELD not in [f for f, _ in specs]:
+        if charge_state_available(args.run_directory, args.filename):
+            specs.append((CHARGE_STATE_FIELD, None))
+        else:
+            print(f"Warning: charge state unavailable (no 'zbar', or 'ye' and 'sumy', in "
+                  f"{args.filename}); skipping {CHARGE_STATE_FIELD}.", file=sys.stderr)
+
+    try:
+        mesh_names = resolve_mesh_names(specs, args.species)
+    except ValueError as exc:
+        parser.error(str(exc))
+    fields = [f for f, _ in specs]
 
     device = resolve_device(args.device)
     print(f"Using device: {device}")
@@ -375,16 +623,14 @@ def main(argv=None):
 
     ts = Convert(args.run_directory, args.filename)
     geometry = None if args.geometry == "auto" else args.geometry
-    density = ts.get_data(fields=args.fields, level=args.level, dtype=args.dtype,
-                           device=device, geometry=geometry)
+    data = ts.get_fields(fields, level=args.level, dtype=args.dtype,
+                         device=device, geometry=geometry)
 
-    print(f"Refined data size (after refine, level={args.level}): {format_bytes(density.nbytes)}")
+    total_bytes = sum(arr.nbytes for arr in data.values())
+    print(f"Refined data size (after refine, level={args.level}, {len(data)} field(s)): "
+          f"{format_bytes(total_bytes)}")
 
-    if args.normalize:
-        divisor = density.max() if args.normalize is True else args.normalize
-        density = density / divisor
-    if args.threshold > 0:
-        density[density <= args.threshold] = 0
+    apply_normalization(data, normalize=args.normalize, threshold=args.threshold)
 
     output_path = os.path.join(args.run_directory, f"{args.species}_{args.output_name}_0.h5")
 
@@ -395,15 +641,18 @@ def main(argv=None):
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python"))
             from plotting import make_preview_figure
 
-            fig = plt.figure(figsize=(8, 6))
-            make_preview_figure(density, log_scale=args.log_scale, cmap=args.cmap,
-                                 title=args.filename, fig=fig)
+            for field, arr in data.items():
+                fig = plt.figure(figsize=(8, 6))
+                make_preview_figure(arr, log_scale=args.log_scale, cmap=args.cmap,
+                                     title=f"{args.filename}: {field}", fig=fig)
             plt.show(block=True)
         except Exception as exc:
             print(f"Preview unavailable ({exc}); continuing without it.", file=sys.stderr)
 
     if os.path.exists(output_path):
         print(f"Warning: {output_path} already exists and will be overwritten.")
+
+    print("Meshes: " + ", ".join(f"{field} -> {mesh_names[field]}" for field in fields))
 
     if not args.yes:
         if not sys.stdin.isatty():
@@ -415,8 +664,8 @@ def main(argv=None):
             print("Aborted.")
             sys.exit(1)
 
-    written_path = ts.write2openpmd(density, species=args.species, output_name=args.output_name,
-                                     author=args.author)
+    written_path = ts.write2openpmd(data, species=args.species, output_name=args.output_name,
+                                     author=args.author, mesh_names=mesh_names)
     print(f"Wrote {written_path}")
 
 
