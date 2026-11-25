@@ -46,6 +46,38 @@ Two ways to run a conversion:
 
 The converted file has the extension `.h5` with custom name
 
+#### Multiple fields, charge state and temperature units:
+
+Several fields can be written into one openPMD file, all on the same
+refinement level. Each field becomes its own mesh, named after the field
+unless you rename it with `field=name`:
+
+```
+python src/flash2openpmd.py Data slab_hdf5_plt_cnt_0047 \
+    --fields El_number_density ion_number_density=n_i tele --charge-state
+```
+
+- A single field without a rename is still written as `<species>_density`, as before.
+- Fields can be space- or comma-separated. Both yt `gas` fields and raw FLASH
+  variables (e.g. `tele`, `ye`) are accepted.
+- `--charge-state` adds the mean ionisation (Z̄) as `charge_state`. It is read from a
+  FLASH `zbar` variable when present, otherwise derived as Z̄ = `ye` / `sumy`, and is
+  rounded to the nearest integer after refinement, halves up (e.g. 0.4 → 0,
+  0.68 → 1, 1.2 → 1, 2.5 → 3). If the
+  file has neither, a warning is printed and Z̄ is skipped. It can also be listed in
+  `--fields` directly.
+- Normalization and `--threshold` apply only to density fields (names containing
+  "density"). All of them are divided by one shared value: the max of the first density
+  field, or `--normalize VALUE`. Their ratios are kept, so n_e / n_i is still the
+  unrounded Z̄. Other fields, such as the charge state, are not normalized.
+- Temperature fields (e.g. `tele`, `tion`, `trad`) are converted from K to keV.
+
+In the GUI, the **Fields** box starts with one field row. Pick the field from its
+dropdown and, optionally, type a mesh name next to it. **+ Add field** adds another
+row and **X** removes one. Tick **Charge state** to add Z̄. **Normalize** and
+**Threshold** act on density fields only; the note under them lists which of your
+fields that is. After the preview, **Show field** switches which field is plotted.
+
 Simulation output from FLASH code.
 <img src="src/output/Figure1.png" alt="text" width="800"/>
 
